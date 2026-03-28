@@ -47,7 +47,7 @@
 
     // --- ตั้งค่า URL ของ Google Apps Script (นำ URL ของคุณมาใส่ตรงนี้) ---
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx08ig6B1SWMX7VNHrQqYn0XgYto8oCxZKeKWgLpErAfVr4l1B56aNOUqpURZ7fQY8q/exec";
-    const apiKey = ""; 
+    // ไม่จำเป็นต้องใช้ apiKey ในฝั่ง Frontend แล้วครับ เพราะเราย้ายไปรันบน GAS
 
     // --- ชุดคำถาม ---
     const defaultQuestions = [
@@ -134,29 +134,35 @@
         setTempSettings({...tempSettings, units: updated});
       };
 
-      const fetchGemini = async (prompt, systemInstruction = "คุณคือผู้ช่วย AI", retries = 5) => {
-        const delay = ms => new Promise(res => setTimeout(res, ms));
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const fetchGemini = async (prompt, systemInstruction = "คุณคือผู้ช่วย AI") => {
+        if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === "") {
+          return "เกิดข้อผิดพลาด: ไม่พบการเชื่อมต่อกับ Google Apps Script";
+        }
         
-        const payload = {
-          contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: systemInstruction }] }
-        };
+        try {
+          // เตรียมข้อมูลเพื่อส่งให้ GAS (ตรงตามที่เขียนรับไว้ใน GAS.txt)
+          const payload = {
+            action: "analyze",
+            prompt: prompt,
+            systemInstruction: systemInstruction
+          };
 
-        for (let i = 0; i < retries; i++) {
-          try {
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('API Error');
-            const data = await res.json();
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัย ไม่สามารถสร้างข้อความได้";
-          } catch (err) {
-            if (i === retries - 1) return `เกิดข้อผิดพลาดในการวิเคราะห์: ${err.message}`;
-            await delay(Math.pow(2, i) * 1000); 
+          const res = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // ใช้ text/plain เพื่อป้องกันปัญหา CORS
+            body: JSON.stringify(payload)
+          });
+          
+          const data = await res.json();
+          
+          // ตรวจสอบผลลัพธ์จาก GAS
+          if (data.result === "success") {
+            return data.ai_response;
+          } else {
+            throw new Error(data.error || 'Unknown Error from GAS');
           }
+        } catch (err) {
+          return `เกิดข้อผิดพลาดในการวิเคราะห์: ${err.message}`;
         }
       };
 
