@@ -91,6 +91,10 @@
       const [aiSummary, setAiSummary] = useState('');
       const [isAiSummaryLoading, setIsAiSummaryLoading] = useState(false);
 
+      const [customAiQuery, setCustomAiQuery] = useState('');
+      const [customAiResponse, setCustomAiResponse] = useState('');
+      const [isCustomAiLoading, setIsCustomAiLoading] = useState(false);
+
       const [isAdmin, setIsAdmin] = useState(false);
       const [adminPassword, setAdminPassword] = useState('122244444');
       const [showAuthModal, setShowAuthModal] = useState(false);
@@ -199,12 +203,19 @@
         const totalScore = answers.reduce((a, b) => a + b, 0);
         setScore(totalScore);
 
+        let statusText = 'ปกติ';
+        if (totalScore >= 16) {
+          statusText = 'เสี่ยงสูง';
+        } else if (totalScore >= 11) {
+          statusText = 'เสี่ยงปานกลาง';
+        }
+
         const newRecord = {
           id: Date.now(),
           date: new Date().toLocaleString('th-TH'),
           ...patientInfo,
           score: totalScore,
-          status: totalScore >= 10 ? 'เสี่ยงปานกลาง/สูง' : 'ปกติ',
+          status: statusText,
           q1: answers[0], q2: answers[1], q3: answers[2], q4: answers[3], q5: answers[4],
           q6: answers[5], q7: answers[6], q8: answers[7], q9: answers[8], q10: answers[9]
         };
@@ -284,7 +295,7 @@
 
       const handleGenerateAdvice = async () => {
         setIsAiAdviceLoading(true);
-        const prompt = `ผู้ป่วยชื่อ ${patientInfo.name || 'คุณตา/คุณยาย'} อายุ ${patientInfo.age} ปี ทำแบบประเมินปัญหาการได้ยินได้คะแนน ${score}/20 (เกณฑ์ปกติคือ 0-9, เสี่ยงคือ 10-20) 
+        const prompt = `ผู้ป่วยชื่อ ${patientInfo.name || 'คุณตา/คุณยาย'} อายุ ${patientInfo.age} ปี ทำแบบประเมินปัญหาการได้ยินได้คะแนน ${score}/20 (เกณฑ์ปกติ 0-10, เสี่ยงปานกลาง 11-15, เสี่ยงสูง 16-20) 
         กรุณาเขียนคำแนะนำการปฏิบัติตัวเบื้องต้นเกี่ยวกับการดูแลสุขภาพหู 3 ข้อสั้นๆ อ่านง่าย เป็นกันเองและให้กำลังใจ เหมาะสำหรับผู้สูงอายุ (หลีกเลี่ยงการวินิจฉัยทางการแพทย์เชิงลึก) โดยใช้ภาษาไทย และจัดรูปแบบให้อ่านง่าย`;
         
         const advice = await fetchGemini(prompt, "คุณคือแพทย์ผู้เชี่ยวชาญด้าน โสต ศอ นาสิก (ENT) ที่ใจดีและอธิบายเข้าใจง่าย");
@@ -294,15 +305,31 @@
 
       const handleGenerateSummary = async () => {
         setIsAiSummaryLoading(true);
-        const riskCount = records.filter(r => r.score >= 10).length;
+        const riskCount = records.filter(r => r.score >= 11).length;
+        const normalCount = records.length - riskCount;
         const avgAge = records.length > 0 ? (records.reduce((acc, curr) => acc + Number(curr.age), 0) / records.length).toFixed(1) : 0;
         
-        const prompt = `จากข้อมูลการคัดกรองการได้ยินจำนวน ${records.length} คน พบผู้ที่มีความเสี่ยง ${riskCount} คน และอยู่ในเกณฑ์ปกติ ${records.length - riskCount} คน อายุเฉลี่ยของผู้เข้ารับการตรวจคือ ${avgAge} ปี 
+        const prompt = `จากข้อมูลการคัดกรองการได้ยินจำนวน ${records.length} คน พบผู้ที่มีความเสี่ยง (คะแนน 11-20) ${riskCount} คน และอยู่ในเกณฑ์ปกติ (คะแนน 0-10) ${normalCount} คน อายุเฉลี่ยของผู้เข้ารับการตรวจคือ ${avgAge} ปี 
         กรุณาวิเคราะห์และสรุปภาพรวมสั้นๆ ประมาณ 3-4 บรรทัด ว่าแนวโน้มเป็นอย่างไร และให้ข้อเสนอแนะ 1 ข้อสำหรับเจ้าหน้าที่สาธารณสุขในการลงพื้นที่ครั้งต่อไป`;
         
         const summary = await fetchGemini(prompt, "คุณคือนักวิเคราะห์ข้อมูลสาธารณสุขระดับเชี่ยวชาญ");
         setAiSummary(summary);
         setIsAiSummaryLoading(false);
+      };
+
+      const handleCustomAiQuery = async () => {
+        if(!customAiQuery.trim()) return;
+        setIsCustomAiLoading(true);
+        const riskRecords = records.filter(r => r.score >= 11);
+        
+        let riskDataText = riskRecords.map(r => `- อายุ ${r.age} ปี, หน่วย: ${r.unit}, คะแนน: ${r.score} (${r.status})`).join('\n');
+        if(!riskDataText) riskDataText = "ไม่มีข้อมูลผู้มีความเสี่ยงในขณะนี้";
+
+        const prompt = `ข้อมูลผู้มีความเสี่ยงการได้ยิน (คะแนน 11-20) จำนวน ${riskRecords.length} คน มีดังนี้:\n${riskDataText}\n\nคำถามจากเจ้าหน้าที่ผู้คัดกรอง: ${customAiQuery}\n\nกรุณาตอบคำถามนี้โดยวิเคราะห์จากข้อมูลผู้มีความเสี่ยงด้านบน ให้คำตอบที่กระชับ เป็นรูปธรรม และนำไปปรับใช้ในการวางแผนสาธารณสุขได้จริง`;
+        
+        const response = await fetchGemini(prompt, "คุณคือนักวิเคราะห์ข้อมูลสาธารณสุขระดับเชี่ยวชาญ ที่ช่วยเจ้าหน้าที่วิเคราะห์ข้อมูลผู้ป่วยกลุ่มเสี่ยง");
+        setCustomAiResponse(response);
+        setIsCustomAiLoading(false);
       };
 
       let currentViewContent = null;
@@ -468,22 +495,50 @@
           </div>
         );
       } else if (view === 'result') {
-        const isRisk = score >= 10;
+        const isHigh = score >= 16;
+        const isModerate = score >= 11 && score <= 15;
+        const isRisk = isHigh || isModerate;
+        
+        let boxColor = 'border-green-500';
+        let textColor = 'text-green-500';
+        let bgLight = 'bg-green-100';
+        let textDark = 'text-green-800';
+        let borderLight = 'border-green-200';
+        let statusMessage = 'การได้ยินของคุณอยู่ในเกณฑ์ปกติ';
+
+        if (isHigh) {
+          boxColor = 'border-red-500';
+          textColor = 'text-red-500';
+          bgLight = 'bg-red-100';
+          textDark = 'text-red-800';
+          borderLight = 'border-red-200';
+          statusMessage = 'คุณมีความเสี่ยงหูตึงระดับสูง ควรเข้ารับการตรวจการได้ยินยืนยันโดยด่วน';
+        } else if (isModerate) {
+          boxColor = 'border-amber-500';
+          textColor = 'text-amber-500';
+          bgLight = 'bg-amber-100';
+          textDark = 'text-amber-800';
+          borderLight = 'border-amber-200';
+          statusMessage = 'คุณมีความเสี่ยงหูตึงระดับปานกลาง ควรเข้ารับการตรวจการได้ยินยืนยัน';
+        }
+
         currentViewContent = (
           <div className="max-w-3xl mx-auto mt-12 p-6 animate-fade-in space-y-8">
-            <div className={`bg-white rounded-3xl shadow-2xl p-10 text-center border-t-[12px] ${isRisk ? 'border-orange-500' : 'border-green-500'}`}>
+            <div className={`bg-white rounded-3xl shadow-2xl p-10 text-center border-t-[12px] ${boxColor}`}>
               <div className="mb-8">
-                {isRisk ? <AlertTriangle className="w-32 h-32 mx-auto text-orange-500 mb-4 animate-bounce" /> : <CheckCircle className="w-32 h-32 mx-auto text-green-500 mb-4" />}
+                {isHigh ? <AlertTriangle className={`w-32 h-32 mx-auto ${textColor} mb-4 animate-bounce`} /> : 
+                 isModerate ? <AlertTriangle className={`w-32 h-32 mx-auto ${textColor} mb-4`} /> : 
+                 <CheckCircle className={`w-32 h-32 mx-auto ${textColor} mb-4`} />}
                 <h2 className="text-4xl font-bold text-slate-800">ผลการคัดกรอง</h2>
               </div>
 
               <div className="bg-slate-50 rounded-3xl p-8 mb-8">
                 <p className="text-2xl text-slate-600 mb-2">คะแนนรวมของคุณคือ</p>
-                <div className={`text-8xl font-black mb-4 ${isRisk ? 'text-orange-500' : 'text-green-500'}`}>
+                <div className={`text-8xl font-black mb-4 ${textColor}`}>
                   {score} <span className="text-3xl text-slate-400">/ 20</span>
                 </div>
-                <div className={`p-6 rounded-2xl text-2xl font-bold border-2 ${isRisk ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-green-100 text-green-800 border-green-200'}`}>
-                  {isRisk ? "คุณมีความเสี่ยงหูตึงปานกลาง ควรรับการตรวจการได้ยินเพิ่มเติม" : "การได้ยินของคุณอยู่ในเกณฑ์ปกติ"}
+                <div className={`p-6 rounded-2xl text-2xl font-bold border-2 ${bgLight} ${textDark} ${borderLight}`}>
+                  {statusMessage}
                 </div>
               </div>
               
@@ -520,23 +575,30 @@
           </div>
         );
       } else if (view === 'dashboard') {
-        const riskCount = records.filter(r => r.score >= 10).length;
+        const normalCount = records.filter(r => r.score <= 10).length;
+        const moderateCount = records.filter(r => r.score >= 11 && r.score <= 15).length;
+        const highCount = records.filter(r => r.score >= 16).length;
+        
         currentViewContent = (
           <div className="max-w-6xl mx-auto mt-8 p-6 animate-fade-in space-y-8">
             <h2 className="text-3xl font-bold text-slate-800 flex items-center gap-3"><BarChart2 className="w-8 h-8 text-teal-600"/> แดชบอร์ดข้อมูลผู้เข้ารับการตรวจ</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-8 rounded-3xl shadow-lg border-l-8 border-blue-500 transform hover:scale-105 transition-all">
-                <p className="text-xl text-slate-500 font-medium mb-2">ผู้เข้ารับการตรวจทั้งหมด</p>
-                <p className="text-5xl font-black text-blue-600">{records.length} <span className="text-2xl font-normal text-slate-400">คน</span></p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-3xl shadow-lg border-l-8 border-blue-500 transform hover:scale-105 transition-all">
+                <p className="text-lg text-slate-500 font-medium mb-1">ทั้งหมด</p>
+                <p className="text-4xl font-black text-blue-600">{records.length} <span className="text-xl font-normal text-slate-400">คน</span></p>
               </div>
-              <div className="bg-white p-8 rounded-3xl shadow-lg border-l-8 border-orange-500 transform hover:scale-105 transition-all">
-                <p className="text-xl text-slate-500 font-medium mb-2">กลุ่มเสี่ยง ({'>'}10 คะแนน)</p>
-                <p className="text-5xl font-black text-orange-500">{riskCount} <span className="text-2xl font-normal text-slate-400">คน</span></p>
+              <div className="bg-white p-6 rounded-3xl shadow-lg border-l-8 border-green-500 transform hover:scale-105 transition-all">
+                <p className="text-lg text-slate-500 font-medium mb-1">ปกติ (0-10)</p>
+                <p className="text-4xl font-black text-green-500">{normalCount} <span className="text-xl font-normal text-slate-400">คน</span></p>
               </div>
-              <div className="bg-white p-8 rounded-3xl shadow-lg border-l-8 border-green-500 transform hover:scale-105 transition-all">
-                <p className="text-xl text-slate-500 font-medium mb-2">กลุ่มปกติ</p>
-                <p className="text-5xl font-black text-green-500">{records.length - riskCount} <span className="text-2xl font-normal text-slate-400">คน</span></p>
+              <div className="bg-white p-6 rounded-3xl shadow-lg border-l-8 border-amber-500 transform hover:scale-105 transition-all">
+                <p className="text-lg text-slate-500 font-medium mb-1">ปานกลาง (11-15)</p>
+                <p className="text-4xl font-black text-amber-500">{moderateCount} <span className="text-xl font-normal text-slate-400">คน</span></p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl shadow-lg border-l-8 border-red-500 transform hover:scale-105 transition-all">
+                <p className="text-lg text-slate-500 font-medium mb-1">เสี่ยงสูง (16-20)</p>
+                <p className="text-4xl font-black text-red-500">{highCount} <span className="text-xl font-normal text-slate-400">คน</span></p>
               </div>
             </div>
 
@@ -565,6 +627,36 @@
                     <button onClick={handleGenerateSummary} className="mt-4 text-sm text-teal-600 hover:text-teal-800 flex items-center gap-1 font-medium"><RotateCcw size={16}/> สรุปใหม่อีกครั้ง</button>
                   </div>
                 )}
+
+                {/* New Custom AI Query Box */}
+                <div className="mt-8 pt-6 border-t border-teal-200">
+                  <h4 className="text-lg font-bold text-teal-800 mb-3 flex items-center gap-2">
+                    <Bot size={20}/> ถาม AI วิเคราะห์เจาะลึกเฉพาะผู้มีความเสี่ยง (11-20 คะแนน)
+                  </h4>
+                  <div className="flex flex-col md:flex-row gap-3">
+                    <input 
+                      type="text" 
+                      className="flex-1 p-4 rounded-xl border border-teal-300 focus:ring-2 focus:ring-teal-500 outline-none text-lg bg-white" 
+                      placeholder="พิมพ์คำถาม... (เช่น วิเคราะห์แนวโน้มอายุของกลุ่มเสี่ยง หรือ ขอคำแนะนำลงพื้นที่)" 
+                      value={customAiQuery} 
+                      onChange={e => setCustomAiQuery(e.target.value)} 
+                      onKeyPress={e => e.key === 'Enter' && handleCustomAiQuery()}
+                    />
+                    <button 
+                      onClick={handleCustomAiQuery}
+                      disabled={isCustomAiLoading || !customAiQuery.trim()}
+                      className="bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 px-8 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isCustomAiLoading ? <Loader2 className="animate-spin" size={24} /> : <Sparkles size={24} />} ถาม AI
+                    </button>
+                  </div>
+                  {customAiResponse && (
+                    <div className="mt-6 bg-white p-6 rounded-2xl shadow-sm border-l-4 border-indigo-500 text-slate-700 text-lg leading-relaxed relative">
+                      <Bot className="absolute -top-3 -right-3 text-indigo-500 bg-white rounded-full p-1 border border-indigo-100" size={32} />
+                      <p className="whitespace-pre-line">{customAiResponse}</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -594,7 +686,11 @@
                           <td className="p-4 text-slate-600">{record.unit}</td>
                           <td className="p-4 text-center font-bold text-xl">{record.score}</td>
                           <td className="p-4">
-                            <span className={`px-3 py-1 rounded-full text-sm font-bold ${record.score >= 10 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>{record.status}</span>
+                            <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                              record.score >= 16 ? 'bg-red-100 text-red-700' : 
+                              record.score >= 11 ? 'bg-amber-100 text-amber-700' : 
+                              'bg-green-100 text-green-700'
+                            }`}>{record.status}</span>
                           </td>
                           <td className="p-4 text-center">
                             <button onClick={() => deleteRecord(record.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="ลบข้อมูล"><Trash2 size={20} /></button>
