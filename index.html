@@ -1,0 +1,62 @@
+const GEMINI_API_KEY = "AIzaSyCdtH5NZkFblLjhHDst5J4wq8gHdqP_5vk"; // API Key ของคุณ
+const GEMINI_MODEL = "gemini-2.5-flash"; // ระบุรุ่น Gemini อย่างชัดเจน
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    
+    // 1. ตรวจสอบคำสั่งว่าเป็น AI หรือไม่
+    if (data.action === "analyze") {
+      return callGeminiAI(data.prompt, data.systemInstruction);
+    }
+
+    // 2. ถ้าเป็นการบันทึกข้อมูลปกติ
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var newRow = headers.map(function(header) {
+      return data[header] === undefined ? "" : data[header];
+    });
+    
+    sheet.appendRow(newRow);
+    
+    return ContentService.createTextOutput(JSON.stringify({"result": "success"}))
+                         .setMimeType(ContentService.MimeType.JSON);
+                         
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({"result": "error", "error": error.toString()}))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ฟังก์ชันเรียก AI ฉบับปรับปรุงความแม่นยำ
+function callGeminiAI(prompt, systemInstruction) {
+  var url = "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=" + GEMINI_API_KEY;
+  
+  var payload = {
+    "contents": [{"parts": [{"text": prompt}]}],
+    "systemInstruction": {"parts": [{"text": systemInstruction || "คุณคือผู้ช่วย AI"}]},
+    "generationConfig": {
+      "temperature": 0.3 // ปรับให้ AI มีความแม่นยำขึ้น ลดความเพ้อเจ้อ (0.0 - 1.0)
+    }
+  };
+  
+  var options = {
+    "method": "post",
+    "contentType": "application/json",
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  
+  var response = UrlFetchApp.fetch(url, options);
+  var json = JSON.parse(response.getContentText());
+  var aiText = "เกิดข้อผิดพลาดในการวิเคราะห์จาก API";
+  
+  if (json.candidates && json.candidates.length > 0) {
+    aiText = json.candidates[0].content.parts[0].text;
+  } else if (json.error) {
+    aiText = "API Error: " + json.error.message;
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({"result": "success", "ai_response": aiText}))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
